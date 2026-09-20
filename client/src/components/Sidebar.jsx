@@ -1,15 +1,19 @@
 import { NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext.jsx';
-import { LayoutDashboard, Wallet, Receipt, PiggyBank, BarChart3, LogOut, Sparkles } from 'lucide-react';
+import { LayoutDashboard, Wallet, Receipt, PiggyBank, BarChart3, LogOut, Sparkles, Settings, Target, Dna } from 'lucide-react';
 
 const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/budgets', label: 'Budgets', icon: Wallet },
   { to: '/expenses', label: 'Expenses', icon: Receipt },
   { to: '/income', label: 'Income', icon: PiggyBank },
+  { to: '/goals', label: 'Savings Vault', icon: Target },
+  { to: '/financial-dna', label: 'Financial DNA', icon: Dna },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
+  { to: '/categories', label: 'Categories', icon: Settings }
 ];
+
 
 export default function Sidebar() {
   const { user, logout } = useAuth();

@@ -1,57 +1,53 @@
-// Heuristic AI: allocates monthly income across categories using
-// a 50/30/20-inspired rule, tuned by user's historical spending.
-const DEFAULT_RATIOS = {
-  Food: 0.15,
-  Shopping: 0.10,
-  Transport: 0.10,
-  Bills: 0.15,
-  Entertainment: 0.05,
-  Savings: 0.20,
-  Investments: 0.25,
+export const autoRebalance = (currentBudgets, overspentCategory, monthlyIncome) => {
+  const adjustments = {};
+  for (const [category, amount] of Object.entries(currentBudgets)) {
+    if (category !== overspentCategory) {
+      adjustments[category] = Math.max(0, amount - (amount * 0.1));
+    }
+  }
+  return adjustments;
 };
 
-export function generateBudgets(monthlyIncome, historyByCategory = {}) {
-  const budgets = {};
-  let total = 0;
+export const generateAIBudget = (monthlyIncome, activeCategories = []) => {
+  // Percentages that add up to 100% when ALL 7 categories are active
+  const baseAllocations = {
+    'Food': 0.20,
+    'Shopping': 0.10,
+    'Transport': 0.10,
+    'Bills': 0.25,
+    'Entertainment': 0.10,
+    'Savings': 0.15,
+    'Investments': 0.10,
+  };
 
-  for (const [cat, baseRatio] of Object.entries(DEFAULT_RATIOS)) {
-    const spent = historyByCategory[cat] || 0;
-    // adapt ratio: if user spent more last month, nudge up (capped)
-    let ratio = baseRatio;
-    if (monthlyIncome > 0 && spent > 0) {
-      const histRatio = spent / monthlyIncome;
-      ratio = baseRatio * 0.6 + histRatio * 0.4;
-      ratio = Math.max(0.02, Math.min(0.4, ratio));
+  const budget = {};
+  let totalPercentage = 0;
+
+  // Only use ACTIVE categories
+  for (const category of activeCategories) {
+    const ratio = baseAllocations[category] || 0.10;
+    budget[category] = Math.round(monthlyIncome * ratio);
+    totalPercentage += ratio;
+  }
+
+  // Normalize to 100%
+  if (totalPercentage > 0 && totalPercentage !== 1) {
+    const factor = 1 / totalPercentage;
+    for (const category of Object.keys(budget)) {
+      budget[category] = Math.round(budget[category] * factor);
     }
-    budgets[cat] = Math.round(monthlyIncome * ratio * 100) / 100;
-    total += budgets[cat];
   }
 
-  // Normalize so sum == monthlyIncome
-  if (total > 0) {
-    const factor = monthlyIncome / total;
-    for (const cat of Object.keys(budgets)) {
-      budgets[cat] = Math.round(budgets[cat] * factor * 100) / 100;
-    }
+  // Fix rounding errors
+  const currentTotal = Object.values(budget).reduce((sum, val) => sum + val, 0);
+  const difference = monthlyIncome - currentTotal;
+  
+  if (difference !== 0 && Object.keys(budget).length > 0) {
+    const largestCategory = Object.keys(budget).reduce((a, b) => 
+      budget[a] > budget[b] ? a : b
+    );
+    budget[largestCategory] += difference;
   }
-  return budgets;
-}
 
-// Auto-rebalance: when a category is over budget, shrink the others
-// proportionally so total budget stays = monthlyIncome.
-export function autoRebalance(budgets, overSpentCategory, monthlyIncome) {
-  const result = { ...budgets };
-  const overspent = result[overSpentCategory] || 0;
-  if (overspent <= monthlyIncome) return result;
-
-  const excess = overspent - monthlyIncome;
-  const others = Object.keys(result).filter(c => c !== overSpentCategory);
-  const othersTotal = others.reduce((s, c) => s + result[c], 0);
-  if (othersTotal <= 0) return result;
-
-  for (const c of others) {
-    const share = result[c] / othersTotal;
-    result[c] = Math.max(0, Math.round((result[c] - excess * share) * 100) / 100);
-  }
-  return result;
-}
+  return budget;
+};

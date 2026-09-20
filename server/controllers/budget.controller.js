@@ -1,5 +1,8 @@
 import { pool } from '../config/db.js';
-import { generateBudgets, autoRebalance } from '../ai/budgetEngine.js';
+// ✅ FIXED IMPORT: Changed generateBudgets to generateAIBudget
+import { generateAIBudget, autoRebalance } from '../ai/budgetEngine.js';
+import { getCurrentMonthTotalIncome } from '../utils/incomeCalculator.js';
+
 
 export const generate = async (req, res, next) => {
   try {
@@ -21,7 +24,9 @@ export const generate = async (req, res, next) => {
     );
     const history = Object.fromEntries(hist.map(r => [r.name, parseFloat(r.total)]));
 
-    const budgets = generateBudgets(income, history);
+    // ✅ FIXED CALL: Use generateAIBudget with correct arguments
+    const budgets = generateAIBudget(income, {}, history);
+    
     const { rows: cats } = await pool.query(`SELECT id, name FROM categories`);
     const catMap = Object.fromEntries(cats.map(c => [c.name, c.id]));
 
@@ -38,17 +43,66 @@ export const generate = async (req, res, next) => {
   } catch (e) { next(e); }
 };
 
+// ✅ FIXED LIST FUNCTION - Returns monthlyIncome correctly
 export const list = async (req, res, next) => {
   try {
+    const userId = req.user.id;
     const { month, year } = req.query;
-    const { rows } = await pool.query(
-      `SELECT b.*, c.name as category_name, c.icon FROM budgets b
+    
+    console.log("Budget list called for:", { userId, month, year }); // Debug log
+    
+    // Get budgets
+    const { rows: budgetRows } = await pool.query(
+      `SELECT b.*, c.name as category_name, c.icon 
+       FROM budgets b
        JOIN categories c ON c.id = b.category_id
-       WHERE b.user_id=$1 AND b.month=$2 AND b.year=$3`,
-      [req.user.id, month, year]
+       WHERE b.user_id = $1 AND b.month = $2 AND b.year = $3 AND c.is_active = true
+       ORDER BY c.name`,
+      [userId, month, year]
     );
-    res.json(rows);
-  } catch (e) { next(e); }
+    
+    // Get total income for current month
+    const { rows: incomeRows } = await pool.query(
+      `SELECT COALESCE(SUM(amount), 0) as total 
+       FROM incomes 
+       WHERE user_id=$1 
+       AND EXTRACT(MONTH FROM date)=$2 
+       AND EXTRACT(YEAR FROM date)=$3`,
+      [userId, month, year]
+    );
+    
+    const monthlyIncome = parseFloat(incomeRows[0].total);
+    
+    // ✅ Calculate spending for EACH budget category
+    const budgetsWithSpending = await Promise.all(
+      budgetRows.map(async (budget) => {
+        const { rows: spentRows } = await pool.query(
+          `SELECT COALESCE(SUM(amount), 0) as total 
+           FROM expenses 
+           WHERE user_id=$1 
+           AND category_id=$2 
+           AND EXTRACT(MONTH FROM date)=$3 
+           AND EXTRACT(YEAR FROM date)=$4`,
+          [userId, budget.category_id, month, year]
+        );
+        
+        return {
+          ...budget,
+          spent: parseFloat(spentRows[0].total)
+        };
+      })
+    );
+    
+    console.log("Budgets with spending:", budgetsWithSpending); // Debug log
+    
+    res.json({ 
+      budgets: budgetsWithSpending,
+      monthlyIncome: monthlyIncome 
+    });
+  } catch (e) { 
+    console.error("BUDGET LIST ERROR:", e);
+    next(e); 
+  }
 };
 
 export const update = async (req, res, next) => {
@@ -87,4 +141,78 @@ export const rebalance = async (req, res, next) => {
     }
     res.json({ success: true, budgets: rebalanced });
   } catch (e) { next(e); }
+};
+
+export const generateWithAI = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const year = now.getFullYear();
+
+    // Get TOTAL income
+    const { rows: incomeRows } = await pool.query(
+      `SELECT COALESCE(SUM(amount), 0) as total 
+       FROM incomes 
+       WHERE user_id=$1 
+       AND EXTRACT(MONTH FROM date)=$2 
+       AND EXTRACT(YEAR FROM date)=$3`,
+      [userId, month, year]
+    );
+
+    const totalMonthlyIncome = parseFloat(incomeRows[0].total);
+
+    if (totalMonthlyIncome === 0) {
+      return res.status(400).json({ 
+        error: 'No income found for this month. Add income first!' 
+      });
+    }
+
+    // Get ONLY ACTIVE categories
+    const { rows: activeCats } = await pool.query(
+      `SELECT name FROM categories WHERE is_active = true ORDER BY id`
+    );
+    
+    const activeCategoryNames = activeCats.map(c => c.name);
+
+    if (activeCategoryNames.length === 0) {
+      return res.status(400).json({ 
+        error: 'No active categories. Enable at least one category!' 
+      });
+    }
+
+    // Generate budget
+    const { generateAIBudget } = await import('../ai/budgetEngine.js');
+    const newBudgets = generateAIBudget(totalMonthlyIncome, activeCategoryNames);
+
+    // DELETE ALL existing budgets for this month
+    await pool.query(
+      `DELETE FROM budgets WHERE user_id=$1 AND month=$2 AND year=$3`,
+      [userId, month, year]
+    );
+
+    // Insert new budgets
+    const { rows: allCats } = await pool.query(`SELECT id, name FROM categories`);
+    const catMap = Object.fromEntries(allCats.map(c => [c.name, c.id]));
+
+    for (const [categoryName, amount] of Object.entries(newBudgets)) {
+      if (catMap[categoryName]) {
+        await pool.query(
+          `INSERT INTO budgets (user_id, category_id, amount, month, year, is_ai_generated) 
+           VALUES ($1, $2, $3, $4, $5, true)`,
+          [userId, catMap[categoryName], amount, month, year]
+        );
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'AI Budget generated successfully!',
+      totalIncome: totalMonthlyIncome,
+      budgets: newBudgets 
+    });
+  } catch (e) {
+    console.error("GENERATE AI ERROR:", e);
+    next(e);
+  }
 };

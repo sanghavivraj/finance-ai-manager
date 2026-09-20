@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { auth } from '../middleware/auth.js';
-import { add, list, remove, update } from '../controllers/income.controller.js';
+import { list, create, deposit, remove } from '../controllers/goal.controller.js';
 
 const r = Router();
 r.use(auth);
 
-r.post('/', add);
 r.get('/', list);
-r.put('/:id', update); 
+r.post('/', create);
+r.post('/:id/deposit', deposit);
 r.delete('/:id', remove);
 
 export default r;

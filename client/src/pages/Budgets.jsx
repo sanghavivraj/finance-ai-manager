@@ -1,192 +1,173 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import api from '../services/api.js';
-import BudgetCard from '../components/BudgetCard.jsx';
 import { formatINR } from '../utils/currency.js';
-import { Sparkles, RefreshCw } from 'lucide-react';
+import { Sparkles, RefreshCw, AlertCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
+
+const categoryIcons = {
+  'Food': '🍔', 'Shopping': '🛍️', 'Transport': '🚗',
+  'Bills': '📄', 'Entertainment': '🎮', 'Savings': '💰', 'Investments': '📈'
+};
 
 export default function Budgets() {
   const [budgets, setBudgets] = useState([]);
-  const [spent, setSpent] = useState({});
-  const [auto, setAuto] = useState(false);
-  const [income, setIncome] = useState(0);
-  const [loading, setLoading] = useState(false);
-  
-  const now = new Date();
-  const month = now.getMonth() + 1;
-  const year = now.getFullYear();
+  const [monthlyIncome, setMonthlyIncome] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
+  const loadBudgets = async () => {
     try {
-      const [b, s, u] = await Promise.all([
-        api.get('/budgets', { params: { month, year } }),
-        api.get('/dashboard/summary'),
-        api.get('/auth/me'),
-      ]);
-      setBudgets(b.data);
-      setSpent(s.data.spent);
-      setAuto(u.data.auto_rebalance);
-      setIncome(parseFloat(u.data.monthly_income) || 0);
+      const now = new Date();
+      const month = now.getMonth() + 1;
+      const year = now.getFullYear();
+      
+      const res = await api.get(`/budgets?month=${month}&year=${year}`);
+      setBudgets(Array.isArray(res.data.budgets) ? res.data.budgets : []);
+      setMonthlyIncome(res.data.monthlyIncome || 0);
     } catch (err) {
-      console.error('Failed to load budgets:', err);
+      console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { loadBudgets(); }, []);
 
-  const generate = async () => {
-    await api.post('/budgets/generate');
-    await load(); // Reload to show fresh data
+  const handleGenerateAI = async () => {
+    setGenerating(true);
+    try {
+      const res = await api.post('/budgets/generate-ai');
+      toast.success(res.data.message || 'AI Budget generated!');
+      loadBudgets();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to generate AI budget.');
+    } finally {
+      setGenerating(false);
+    }
   };
 
-  const edit = async (id, current) => {
-    const v = prompt('New budget amount (₹):', current);
-    if (!v) return;
-    await api.put(`/budgets/${id}`, { amount: parseFloat(v) });
-    await load();
+  const handleUpdate = async (id, newAmount) => {
+    try {
+      await api.put(`/budgets/${id}`, { amount: newAmount });
+      toast.success('Budget updated');
+      loadBudgets();
+    } catch (err) {
+      toast.error('Failed to update');
+    }
   };
 
-  const toggleAuto = async () => {
-    await fetch('/api/auth/me', {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${localStorage.getItem('token')}`,
-      },
-      body: JSON.stringify({ auto_rebalance: !auto }),
-    });
-    setAuto(!auto);
-  };
+  const totalBudget = budgets.reduce((sum, b) => sum + parseFloat(b.amount || 0), 0);
+  // Calculate total spent across all categories
+  const totalSpent = budgets.reduce((sum, b) => sum + parseFloat(b.spent || 0), 0);
+  const remainingIncome = monthlyIncome - totalBudget;
 
-  const totalBudget = budgets.reduce((s, b) => s + parseFloat(b.amount), 0);
-  const totalSpent = budgets.reduce((s, b) => s + (spent[b.category_name] || 0), 0);
+  if (loading) return <div className="p-8 text-center text-xl font-semibold text-slate-500">Loading budgets...</div>;
 
   return (
-    <div className="space-y-6 p-8">
-      {/* Header */}
-      <motion.div
-        initial={{ y: -20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        className="flex flex-wrap items-center justify-between gap-3"
-      >
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-8 p-8">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-primary-600 to-accent-600 bg-clip-text text-transparent">
-            Budgets
-          </h1>
-          <p className="text-slate-500 mt-2">
-            Monthly income: <span className="font-bold text-accent-600">{formatINR(income)}</span>
-          </p>
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-primary-600 to-accent-600 bg-clip-text text-transparent">Budgets</h1>
+          <p className="text-slate-500 mt-2">Monthly income: <span className="font-bold text-emerald-600">{formatINR(monthlyIncome)}</span></p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={load}
-            disabled={loading}
-            className="btn-ghost flex items-center gap-2"
-          >
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-            Refresh
+        <div className="flex items-center gap-4">
+          <button onClick={loadBudgets} className="btn-ghost flex items-center gap-2">
+            <RefreshCw size={18} /> Refresh
           </button>
-          <button
-            onClick={toggleAuto}
-            className={`btn ${auto ? 'bg-primary-100 text-primary-700' : 'btn-ghost'}`}
-          >
-            Auto Rebalance {auto ? 'ON' : 'OFF'}
-          </button>
-          <button
-            onClick={generate}
-            disabled={income === 0}
-            className={`premium-btn flex items-center gap-2 ${income === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            <Sparkles size={16} />
-            Generate with AI
+          <button onClick={handleGenerateAI} disabled={generating} className="premium-btn flex items-center gap-2 px-6 py-3">
+            <Sparkles size={18} />
+            {generating ? 'Generating...' : 'Generate with AI'}
           </button>
         </div>
-      </motion.div>
+      </div>
 
-      {/* Summary Bar */}
-      {budgets.length > 0 && (
-        <motion.div
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          className="glass-card p-6"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium text-slate-600">Overall Budget Usage</span>
-            <span className="text-sm font-bold text-slate-800">
-              {formatINR(totalSpent)} / {formatINR(totalBudget)}
-            </span>
-          </div>
-          <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${Math.min(100, (totalSpent / totalBudget) * 100)}%` }}
-              transition={{ duration: 0.8, ease: 'easeOut' }}
-              className={`h-full rounded-full ${
-                totalSpent > totalBudget
-                  ? 'bg-gradient-to-r from-red-500 to-red-600'
-                  : totalSpent > totalBudget * 0.8
-                  ? 'bg-gradient-to-r from-amber-500 to-amber-600'
-                  : 'bg-gradient-to-r from-primary-500 to-accent-500'
-              }`}
-            />
-          </div>
-          <div className="flex justify-between mt-2 text-xs text-slate-500">
-            <span>
-              {totalSpent > totalBudget
-                ? `⚠️ Over budget by ${formatINR(totalSpent - totalBudget)}`
-                : `${formatINR(totalBudget - totalSpent)} remaining`}
-            </span>
-            <span className="font-semibold">
-              {totalBudget > 0 ? ((totalSpent / totalBudget) * 100).toFixed(0) : 0}% used
-            </span>
-          </div>
-        </motion.div>
-      )}
+      {/* Overall Budget Usage Card */}
+      <div className="glass-card p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-slate-800">Overall Budget Usage</h3>
+          <div className="text-xl font-bold text-slate-800">{formatINR(totalSpent)} / {formatINR(totalBudget)}</div>
+        </div>
+        <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden mb-2">
+          <motion.div 
+            initial={{ width: 0 }}
+            animate={{ width: `${totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0}%` }}
+            className="h-3 rounded-full bg-gradient-to-r from-primary-500 to-accent-500" 
+          />
+        </div>
+        <div className="flex justify-between text-sm text-slate-500">
+          <span>{formatINR(totalBudget - totalSpent)} remaining</span>
+          <span>{totalBudget > 0 ? ((totalSpent / totalBudget) * 100).toFixed(0) : 0}% used</span>
+        </div>
+      </div>
 
-      {/* Empty State */}
-      {income === 0 && (
-        <div className="glass-card bg-amber-50 border-amber-200 text-center py-12">
-          <p className="text-amber-800 mb-3 font-medium">
-            Your monthly income is ₹0. The AI needs a baseline to generate budgets.
-          </p>
-          <a href="/income" className="inline-flex items-center gap-2 px-6 py-3 bg-amber-600 text-white rounded-2xl hover:bg-amber-700 transition font-medium">
-            Go to Income Page
-          </a>
-        </div>
-      )}
+      {/* Category Cards Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {budgets.length === 0 ? (
+          <div className="col-span-full glass-card p-12 text-center text-slate-500">
+            <div className="text-4xl mb-3">📊</div>
+            <p className="font-medium">No budgets set for this month.</p>
+            <p className="text-sm mt-1">Click "Generate with AI" to create a smart budget.</p>
+          </div>
+        ) : (
+          budgets.map((b, i) => {
+            // ✅ THE FIX: Read the actual spent amount from the backend!
+            const spent = parseFloat(b.spent || 0); 
+            const budgetAmount = parseFloat(b.amount || 0);
+            const remaining = budgetAmount - spent;
+            const usagePercent = budgetAmount > 0 ? (spent / budgetAmount) * 100 : 0;
+            const icon = categoryIcons[b.category_name] || b.icon || '📦';
 
-      {/* Budget Cards Grid */}
-      {budgets.length === 0 && income > 0 ? (
-        <div className="glass-card text-center py-16">
-          <p className="text-slate-500 mb-4 text-lg">No budgets yet. Let AI plan your finances.</p>
-          <button onClick={generate} className="premium-btn px-8 py-3">
-            <Sparkles size={18} className="mr-2" />
-            Generate Budgets
-          </button>
-        </div>
-      ) : (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {budgets.map((b, i) => (
-            <motion.div
-              key={b.id}
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: i * 0.05 }}
-            >
-              <BudgetCard
-                name={b.category_name}
-                icon={b.icon}
-                budget={parseFloat(b.amount)}
-                spent={spent[b.category_name] || 0}
-                onEdit={() => edit(b.id, parseFloat(b.amount))}
-              />
-            </motion.div>
-          ))}
-        </div>
-      )}
-    </div>
+            return (
+              <motion.div
+                key={b.id}
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: i * 0.05 }}
+                className="glass-card p-6 flex flex-col justify-between h-64"
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="text-3xl">{icon}</div>
+                      <div>
+                        <div className="font-bold text-slate-800 text-lg">{b.category_name}</div>
+                        {b.is_ai_generated && (
+                          <div className="text-xs text-primary-600 flex items-center gap-1">
+                            <Sparkles size={12} /> AI Suggested
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-3xl font-bold text-slate-800 mb-1">
+                    {formatINR(spent)} <span className="text-base font-normal text-slate-400">/ {formatINR(budgetAmount)}</span>
+                  </div>
+                  <div className={`text-sm font-medium ${remaining >= 0 ? 'text-emerald-600' : 'text-red-600'} flex items-center gap-1`}>
+                    <AlertCircle size={14} /> {formatINR(remaining)} remaining
+                  </div>
+                </div>
+
+                <div className="mt-auto">
+                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden mb-3">
+                    <motion.div 
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(100, usagePercent)}%` }}
+                      transition={{ duration: 1, delay: 0.5 }}
+                      className={`h-2 rounded-full ${usagePercent > 90 ? 'bg-red-500' : usagePercent > 70 ? 'bg-amber-500' : 'bg-emerald-500'}`} 
+                    />
+                  </div>
+                  <div className="flex justify-between text-sm text-slate-500">
+                    <span>Spent: {formatINR(spent)}</span>
+                    <span>Budget: {formatINR(budgetAmount)}</span>
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })
+        )}
+      </div>
+    </motion.div>
   );
 }

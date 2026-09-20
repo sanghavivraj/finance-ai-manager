@@ -2,12 +2,13 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { motion } from 'framer-motion';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Eye, EyeOff } from 'lucide-react';
 
 export default function Login() {
   const { login } = useAuth();
   const nav = useNavigate();
   const [f, setF] = useState({ email: '', password: '' });
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -77,15 +78,30 @@ export default function Login() {
           </div>
 
           <div>
-            <label className="text-sm font-medium text-slate-700 mb-1 block">Password</label>
-            <input
-              className="input-premium"
-              type="password"
-              placeholder="••••••••"
-              value={f.password}
-              onChange={e => setF({ ...f, password: e.target.value })}
-              required
-            />
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-sm font-medium text-slate-700">Password</label>
+              <Link to="/forgot-password" className="text-xs font-semibold text-primary-600 hover:text-primary-700 transition">
+                Forgot Password?
+              </Link>
+            </div>
+            <div className="relative">
+              <input
+                className="input-premium pr-10"
+                type={showPassword ? 'text' : 'password'}
+                placeholder="••••••••"
+                value={f.password}
+                onChange={e => setF({ ...f, password: e.target.value })}
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition"
+                tabIndex="-1"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
           <button

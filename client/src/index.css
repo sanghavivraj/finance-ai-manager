@@ -67,3 +67,41 @@
 .animate-fade-in {
   animation: fadeIn 0.3s ease-out forwards;
 }
+
+/* Money Tank Wave Animation */
+@keyframes wave-flow {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.wave-path {
+  animation: wave-flow 4s linear infinite;
+}
+
+/* Glass Reflection */
+@keyframes glass-shine {
+  0% { opacity: 0.1; }
+  50% { opacity: 0.3; }
+  100% { opacity: 0.1; }
+}
+
+.glass-shine {
+  animation: glass-shine 3s ease-in-out infinite;
+}
+
+@keyframes wave-flow {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.wave-path {
+  animation: wave-flow 4s linear infinite;
+}
+@keyframes glass-shine {
+  0% { opacity: 0.1; }
+  50% { opacity: 0.3; }
+  100% { opacity: 0.1; }
+}
+.glass-shine {
+  animation: glass-shine 3s ease-in-out infinite;
+}
+

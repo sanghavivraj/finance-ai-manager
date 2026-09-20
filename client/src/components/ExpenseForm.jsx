@@ -1,92 +1,231 @@
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import api from '../services/api.js';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Calendar, IndianRupee, Tag, Store, CreditCard, X } from 'lucide-react';
+import toast from 'react-hot-toast';
 
-// Hardcoded default categories
-const DEFAULT_CATEGORIES = [
-  { id: 1, name: 'Food', icon: '🍔' },
-  { id: 2, name: 'Shopping', icon: '️' },
-  { id: 3, name: 'Transport', icon: '' },
-  { id: 4, name: 'Bills', icon: '📄' },
-  { id: 5, name: 'Entertainment', icon: '' },
-  { id: 6, name: 'Savings', icon: '💰' },
-  { id: 7, name: 'Investments', icon: '' },
-];
-
-export default function ExpenseForm({ onAdded }) {
-  const [form, setForm] = useState({ 
-    category_id: '1', amount: '', description: '', date: new Date().toISOString().slice(0, 10),
-    merchant: '', item_name: '', payment_method: 'UPI'
+export default function ExpenseForm({ onAdded, editingExpense, onEditComplete }) {
+  const [form, setForm] = useState({
+    amount: '',
+    category_id: '',
+    date: new Date().toISOString().split('T')[0],
+    description: '',
+    merchant: '',
+    payment_method: 'upi',
   });
-  const [showDetails, setShowDetails] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [mood, setMood] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [categories, setCategories] = useState([]);
 
-  const submit = async e => {
-    e.preventDefault();
-    setError(''); setSuccess('');
-    
-    try {
-      await api.post('/expenses', {
-        category_id: parseInt(form.category_id),
-        amount: parseFloat(form.amount),
-        description: form.description,
-        date: form.date,
-        merchant: form.merchant || null,
-        item_name: form.item_name || null,
-        payment_method: form.payment_method || null,
+  // Load categories
+  useEffect(() => {
+    api.get('/categories').then(r => setCategories(r.data));
+  }, []);
+
+  // Fill form when editing
+  useEffect(() => {
+    if (editingExpense) {
+      setForm({
+        amount: editingExpense.amount.toString(),
+        category_id: editingExpense.category_id.toString(),
+        date: new Date(editingExpense.date).toISOString().split('T')[0],
+        description: editingExpense.description || '',
+        merchant: editingExpense.merchant || '',
+        payment_method: editingExpense.payment_method || 'upi',
       });
-      
-      setSuccess('✅ Expense added successfully!');
-      setForm({ ...form, amount: '', description: '', merchant: '', item_name: '' });
-      onAdded?.();
-      setTimeout(() => setSuccess(''), 3000);
+      setMood(editingExpense.mood || '');
+    } else {
+      // Reset form
+      setForm({
+        amount: '',
+        category_id: '',
+        date: new Date().toISOString().split('T')[0],
+        description: '',
+        merchant: '',
+        payment_method: 'upi',
+      });
+      setMood('');
+    }
+  }, [editingExpense]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      if (editingExpense) {
+        // Update existing
+        await api.put(`/expenses/${editingExpense.id}`, {
+          ...form,
+          amount: parseFloat(form.amount),
+          mood: mood || null,
+        });
+        toast.success('Expense updated successfully!');
+        onEditComplete();
+      } else {
+        // Create new
+        await api.post('/expenses', {
+          ...form,
+          amount: parseFloat(form.amount),
+          mood: mood || null,
+        });
+        toast.success('Expense added successfully! ');
+        
+        setForm({
+          amount: '',
+          category_id: '',
+          date: new Date().toISOString().split('T')[0],
+          description: '',
+          merchant: '',
+          payment_method: 'upi',
+        });
+        setMood('');
+        onAdded();
+      }
     } catch (err) {
-      setError('Failed to add expense. Please check your input.');
+      toast.error(editingExpense ? 'Failed to update expense' : 'Failed to add expense');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <form onSubmit={submit} className="glass-card p-6 space-y-4">
-      <h3 className="font-bold text-xl text-slate-800">Add Expense</h3>
-      
-      {error && <div className="text-red-600 text-sm bg-red-50 p-3 rounded-xl border border-red-200">{error}</div>}
-      {success && <div className="text-emerald-600 text-sm bg-emerald-50 p-3 rounded-xl border border-emerald-200">{success}</div>}
-      
-      <select className="input-premium" value={form.category_id} onChange={e => setForm({ ...form, category_id: e.target.value })}>
-        {DEFAULT_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
-      </select>
-      
-      <input className="input-premium" type="number" step="0.01" placeholder="Amount (₹)" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} required />
-      <input className="input-premium" placeholder="Description (e.g. Lunch)" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
-      <input className="input-premium" type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} required />
+    <form onSubmit={handleSubmit} className="glass-card p-6 space-y-4">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+          {editingExpense ? <Plus size={20} className="text-primary-600" /> : <Plus size={20} className="text-primary-600" />}
+          {editingExpense ? 'Edit Expense' : 'Add Expense'}
+        </h3>
+        {editingExpense && (
+          <button
+            type="button"
+            onClick={onEditComplete}
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+          >
+            <X size={18} />
+          </button>
+        )}
+      </div>
 
-      {/* Progressive Disclosure Toggle */}
-      <button 
-        type="button" 
-        onClick={() => setShowDetails(!showDetails)}
-        className="flex items-center gap-2 text-sm font-medium text-primary-600 hover:text-primary-700 transition"
-      >
-        {showDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        {showDetails ? 'Hide details' : 'Add more details (Merchant, Item, Payment)'}
-      </button>
+      {/* Amount */}
+      <div>
+        <label className="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Amount</label>
+        <div className="relative">
+          <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input
+            type="number"
+            step="0.01"
+            placeholder="0.00"
+            className="input-premium pl-10"
+            value={form.amount}
+            onChange={(e) => setForm({ ...form, amount: e.target.value })}
+            required
+          />
+        </div>
+      </div>
 
-      {/* Hidden Details Section */}
-      {showDetails && (
-        <div className="space-y-3 pt-2 border-t border-slate-200 animate-fade-in">
-          <input className="input-premium" placeholder="Merchant / Restaurant (e.g. Burger King)" value={form.merchant} onChange={e => setForm({ ...form, merchant: e.target.value })} />
-          <input className="input-premium" placeholder="Item purchased (e.g. Whopper)" value={form.item_name} onChange={e => setForm({ ...form, item_name: e.target.value })} />
-          <select className="input-premium" value={form.payment_method} onChange={e => setForm({ ...form, payment_method: e.target.value })}>
-            <option value="UPI">UPI</option>
-            <option value="Credit Card">Credit Card</option>
-            <option value="Debit Card">Debit Card</option>
-            <option value="Cash">Cash</option>
-            <option value="Net Banking">Net Banking</option>
+      {/* Category */}
+      <div>
+        <label className="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Category</label>
+        <div className="relative">
+          <Tag className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <select
+            className="input-premium pl-10 appearance-none"
+            value={form.category_id}
+            onChange={(e) => setForm({ ...form, category_id: e.target.value })}
+            required
+          >
+            <option value="">Select Category</option>
+            {categories.map(cat => (
+              <option key={cat.id} value={cat.id}>{cat.name}</option>
+            ))}
           </select>
         </div>
-      )}
-      
-      <button type="submit" className="premium-btn w-full py-3">Add Expense</button>
+      </div>
+
+      {/* Merchant & Date */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Merchant</label>
+          <div className="relative">
+            <Store className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              type="text"
+              placeholder="e.g. Zomato"
+              className="input-premium pl-10"
+              value={form.merchant}
+              onChange={(e) => setForm({ ...form, merchant: e.target.value })}
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Date</label>
+          <div className="relative">
+            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              type="date"
+              className="input-premium pl-10"
+              value={form.date}
+              onChange={(e) => setForm({ ...form, date: e.target.value })}
+              required
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Payment Method */}
+      <div>
+        <label className="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Payment Method</label>
+        <div className="relative">
+          <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <select
+            className="input-premium pl-10 appearance-none"
+            value={form.payment_method}
+            onChange={(e) => setForm({ ...form, payment_method: e.target.value })}
+          >
+            <option value="upi">UPI</option>
+            <option value="card">Credit/Debit Card</option>
+            <option value="cash">Cash</option>
+            <option value="netbanking">Net Banking</option>
+          </select>
+        </div>
+      </div>
+
+      {/* MOOD SELECTOR */}
+      <div>
+        <label className="block text-xs font-semibold text-slate-500 uppercase mb-2">How are you feeling?</label>
+        <div className="flex gap-2">
+          {[
+            { emoji: '😊', label: 'Happy', value: 'happy' },
+            { emoji: '😐', label: 'Normal', value: 'normal' },
+            { emoji: '😔', label: 'Stressed', value: 'stressed' },
+            { emoji: '😴', label: 'Tired', value: 'tired' },
+            { emoji: '🤩', label: 'Excited', value: 'excited' },
+          ].map((m) => (
+            <button
+              key={m.value}
+              type="button"
+              onClick={() => setMood(mood === m.value ? '' : m.value)}
+              className={`flex-1 py-2 rounded-xl border-2 transition-all duration-200 flex flex-col items-center ${
+                mood === m.value 
+                  ? 'border-primary-500 bg-primary-50 scale-105 shadow-sm' 
+                  : 'border-slate-200 hover:border-slate-300 bg-white'
+              }`}
+            >
+              <span className="text-xl mb-0.5">{m.emoji}</span>
+              <span className="text-[10px] font-medium text-slate-600">{m.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Submit Button */}
+      <button 
+        type="submit" 
+        className="premium-btn w-full py-3 mt-2 flex items-center justify-center gap-2"
+        disabled={loading}
+      >
+        {loading ? 'Saving...' : editingExpense ? '💾 Update Expense' : 'Add Expense'}
+      </button>
     </form>
   );
 }

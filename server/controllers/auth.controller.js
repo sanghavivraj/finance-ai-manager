@@ -1,6 +1,8 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { pool } from '../config/db.js';
+import bot from '../telegramBot.js';
 
 export const register = async (req, res, next) => {
   try {
@@ -36,4 +38,93 @@ export const me = async (req, res, next) => {
     );
     res.json(rows[0]);
   } catch (e) { next(e); }
+};
+
+export const forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    const { rows } = await pool.query(
+      `SELECT id, name, email, telegram_id FROM users WHERE LOWER(email) = LOWER($1)`,
+      [email]
+    );
+
+    if (rows.length === 0) {
+      return res.json({ message: 'If an account with that email exists, a password reset code has been generated.' });
+    }
+
+    const user = rows[0];
+    const resetCode = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit numeric OTP
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+
+    await pool.query(
+      `UPDATE users 
+       SET reset_code = $1, reset_code_expires = $2, reset_token = $3, reset_token_expires = $2 
+       WHERE id = $4`,
+      [resetCode, expires, hashedToken, user.id]
+    );
+
+    // Send 6-digit OTP code via Telegram Bot if linked
+    if (user.telegram_id && bot) {
+      try {
+        await bot.sendMessage(
+          user.telegram_id,
+          `🔑 *Password Reset Verification Code*\n\nHello ${user.name},\nYour 6-digit password reset OTP code is:\n\n\`${resetCode}\`\n\n*Note:* This code will expire in 15 minutes.`,
+          { parse_mode: 'Markdown' }
+        );
+      } catch (err) {
+        console.error('Telegram OTP send failed:', err.message);
+      }
+    }
+
+    const isDev = process.env.NODE_ENV !== 'production';
+    res.json({
+      message: user.telegram_id
+        ? 'A 6-digit verification code has been sent to your Telegram!'
+        : 'Reset code generated. Link your Telegram account for direct OTP notifications.',
+      ...(isDev ? { code: resetCode, resetCode, token: rawToken, resetToken: rawToken } : {}),
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const resetPassword = async (req, res, next) => {
+  try {
+    const { code, token, newPassword } = req.body;
+    const userCode = (code || token || '').toString().trim();
+    if (!userCode || !newPassword) {
+      return res.status(400).json({ error: 'Reset code and new password are required' });
+    }
+
+    const hashedToken = crypto.createHash('sha256').update(userCode).digest('hex');
+
+    const { rows } = await pool.query(
+      `SELECT id FROM users 
+       WHERE (reset_code = $1 OR reset_token = $2 OR reset_token = $3) 
+         AND (reset_code_expires > NOW() OR reset_token_expires > NOW())`,
+      [userCode, hashedToken, userCode]
+    );
+
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid or expired 6-digit reset code' });
+    }
+
+    const userId = rows[0].id;
+    const newHash = await bcrypt.hash(newPassword, 10);
+
+    await pool.query(
+      `UPDATE users 
+       SET password_hash = $1, reset_code = NULL, reset_code_expires = NULL, reset_token = NULL, reset_token_expires = NULL 
+       WHERE id = $2`,
+      [newHash, userId]
+    );
+
+    res.json({ message: 'Password reset successful! You can now log in with your new password.' });
+  } catch (e) {
+    next(e);
+  }
 };
