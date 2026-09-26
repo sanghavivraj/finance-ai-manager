@@ -4,15 +4,38 @@ import crypto from 'crypto';
 import { pool } from '../config/db.js';
 import bot from '../telegramBot.js';
 
+const getJwtSecret = () => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('JWT_SECRET is not set in environment variables.');
+  return secret;
+};
+
+
 export const register = async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
+    
+    // Validate name
+    if (!name || name.length < 2 || name.length > 50) {
+      return res.status(400).json({ error: 'Name must be 2-50 characters' });
+    }
+    
+    // Validate email
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+    
+    // Validate password
+    if (!password || password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+    
     const hash = await bcrypt.hash(password, 10);
     const { rows } = await pool.query(
       `INSERT INTO users (name, email, password_hash) VALUES ($1,$2,$3) RETURNING id, name, email`,
       [name, email, hash]
     );
-    const token = jwt.sign({ id: rows[0].id }, process.env.JWT_SECRET || 'dev-secret', { expiresIn: '30d' });
+    const token = jwt.sign({ id: rows[0].id }, getJwtSecret(), { expiresIn: '30d' });
     res.json({ token, user: rows[0] });
   } catch (e) { next(e); }
 };
@@ -20,11 +43,22 @@ export const register = async (req, res, next) => {
 export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
+    
+    // Validate email
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+    
+    // Validate password
+    if (!password || password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+    
     const { rows } = await pool.query(`SELECT * FROM users WHERE email=$1`, [email]);
     if (!rows[0]) return res.status(401).json({ error: 'Invalid credentials' });
     const ok = await bcrypt.compare(password, rows[0].password_hash);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
-    const token = jwt.sign({ id: rows[0].id }, process.env.JWT_SECRET || 'dev-secret', { expiresIn: '30d' });
+    const token = jwt.sign({ id: rows[0].id }, getJwtSecret(), { expiresIn: '30d' });
     const { password_hash, ...user } = rows[0];
     res.json({ token, user });
   } catch (e) { next(e); }
@@ -43,8 +77,12 @@ export const me = async (req, res, next) => {
 export const forgotPassword = async (req, res, next) => {
   try {
     const { email } = req.body;
-    if (!email) return res.status(400).json({ error: 'Email is required' });
-
+    
+    // Validate email
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+    
     const { rows } = await pool.query(
       `SELECT id, name, email, telegram_id FROM users WHERE LOWER(email) = LOWER($1)`,
       [email]
@@ -80,12 +118,14 @@ export const forgotPassword = async (req, res, next) => {
       }
     }
 
-    const isDev = process.env.NODE_ENV !== 'production';
+    // Only expose OTP in dev AND only via console — never in HTTP response
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[DEV] Reset code for ${email}: ${resetCode}`);
+    }
     res.json({
       message: user.telegram_id
         ? 'A 6-digit verification code has been sent to your Telegram!'
         : 'Reset code generated. Link your Telegram account for direct OTP notifications.',
-      ...(isDev ? { code: resetCode, resetCode, token: rawToken, resetToken: rawToken } : {}),
     });
   } catch (e) {
     next(e);
@@ -96,10 +136,17 @@ export const resetPassword = async (req, res, next) => {
   try {
     const { code, token, newPassword } = req.body;
     const userCode = (code || token || '').toString().trim();
-    if (!userCode || !newPassword) {
-      return res.status(400).json({ error: 'Reset code and new password are required' });
+    
+    // Validate code/token
+    if (!userCode || userCode.length !== 6 || !/^\d{6}$/.test(userCode)) {
+      return res.status(400).json({ error: 'Reset code must be a 6-digit number' });
     }
-
+    
+    // Validate new password
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+    
     const hashedToken = crypto.createHash('sha256').update(userCode).digest('hex');
 
     const { rows } = await pool.query(

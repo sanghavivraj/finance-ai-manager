@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext.jsx';
-import { LayoutDashboard, Wallet, Receipt, PiggyBank, BarChart3, LogOut, Sparkles, Settings, Target, Dna } from 'lucide-react';
+import { LayoutDashboard, Wallet, Receipt, PiggyBank, BarChart3, LogOut, Sparkles, Settings, Target, Dna, Users } from 'lucide-react';
 
 const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -10,6 +10,7 @@ const links = [
   { to: '/income', label: 'Income', icon: PiggyBank },
   { to: '/goals', label: 'Savings Vault', icon: Target },
   { to: '/financial-dna', label: 'Financial DNA', icon: Dna },
+  { to: '/peer-check', label: 'Peer Check', icon: Users },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/categories', label: 'Categories', icon: Settings }
 ];

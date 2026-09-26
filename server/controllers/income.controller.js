@@ -4,6 +4,22 @@ import { pool } from '../config/db.js';
 export const add = async (req, res, next) => {
   try {
     const { source, amount, date, is_salary } = req.body;
+    
+    // Validate source
+    if (!source || source.length < 2 || source.length > 50) {
+      return res.status(400).json({ error: 'Source must be 2-50 characters' });
+    }
+    
+    // Validate amount
+    if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
+      return res.status(400).json({ error: 'Amount must be a positive number' });
+    }
+    
+    // Validate date
+    if (date && isNaN(new Date(date).getTime())) {
+      return res.status(400).json({ error: 'Invalid date format' });
+    }
+    
     await pool.query(
       `INSERT INTO incomes (user_id, source, amount, date, is_salary) VALUES ($1,$2,$3,$4,$5)`,
       [req.user.id, source, amount, date || new Date(), !!is_salary]
@@ -38,6 +54,22 @@ export const list = async (req, res, next) => {
 export const update = async (req, res, next) => {
   try {
     const { source, amount, date, is_salary } = req.body;
+    
+    // Validate source
+    if (!source || source.length < 2 || source.length > 50) {
+      return res.status(400).json({ error: 'Source must be 2-50 characters' });
+    }
+    
+    // Validate amount
+    if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
+      return res.status(400).json({ error: 'Amount must be a positive number' });
+    }
+    
+    // Validate date
+    if (date && isNaN(new Date(date).getTime())) {
+      return res.status(400).json({ error: 'Invalid date format' });
+    }
+    
     await pool.query(
       `UPDATE incomes SET source=$1, amount=$2, date=$3, is_salary=$4 
        WHERE id=$5 AND user_id=$6`,

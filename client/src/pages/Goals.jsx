@@ -5,6 +5,7 @@ import { formatINR } from '../utils/currency.js';
 import { Target, PiggyBank, Plus, Sparkles, Calendar, Trash2, ArrowUpRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import confetti from 'canvas-confetti';
+import ConfirmModal from '../components/ConfirmModal.jsx';
 
 const goalIcons = ['💰', '🚗', '🏠', '✈️', '💻', '🎓', '💍', '🛡️'];
 
@@ -14,6 +15,8 @@ export default function Goals() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [depositGoalId, setDepositGoalId] = useState(null);
   const [depositAmount, setDepositAmount] = useState('');
+  const [goalToDelete, setGoalToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   const [form, setForm] = useState({
     name: '',
@@ -23,20 +26,38 @@ export default function Goals() {
     icon: '💰',
   });
 
-  const loadGoals = async () => {
+  const loadGoals = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const { data } = await api.get('/goals');
       setGoals(data || []);
     } catch (err) {
       console.error(err);
-      setGoals([]);
+      if (!silent) setGoals([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
-  useEffect(() => { loadGoals(); }, []);
+  useEffect(() => { 
+    loadGoals(false); 
+
+    // 1. Background Polling Interval (every 4 seconds)
+    const interval = setInterval(() => {
+      loadGoals(true);
+    }, 4000);
+
+    // 2. Window Focus Re-fetch (instant refresh when returning from Telegram/other apps)
+    const handleFocus = () => {
+      loadGoals(true);
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
 
   const handleCreateGoal = async (e) => {
     e.preventDefault();
@@ -70,14 +91,22 @@ export default function Goals() {
     }
   };
 
-  const handleDeleteGoal = async (id) => {
-    if (!window.confirm('Delete this savings goal?')) return;
+  const handleDeleteGoalClick = (goal) => {
+    setGoalToDelete(goal);
+  };
+
+  const handleConfirmDeleteGoal = async () => {
+    if (!goalToDelete) return;
+    setIsDeleting(true);
     try {
-      await api.delete(`/goals/${id}`);
+      await api.delete(`/goals/${goalToDelete.id}`);
       toast.success('Goal deleted');
+      setGoalToDelete(null);
       loadGoals();
     } catch (err) {
       toast.error('Failed to delete goal');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -170,8 +199,9 @@ export default function Goals() {
                       </div>
                     </div>
                     <button
-                      onClick={() => handleDeleteGoal(goal.id)}
+                      onClick={() => handleDeleteGoalClick(goal)}
                       className="text-slate-400 hover:text-red-600 transition-colors p-1"
+                      title="Delete Goal"
                     >
                       <Trash2 size={18} />
                     </button>
@@ -351,6 +381,23 @@ export default function Goals() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Custom UI Confirmation Modal for Goal Deletion */}
+      <ConfirmModal
+        isOpen={!!goalToDelete}
+        title="Delete Savings Goal"
+        message={
+          goalToDelete
+            ? `Are you sure you want to delete the "${goalToDelete.name}" savings goal (${formatINR(goalToDelete.current)} saved of ${formatINR(goalToDelete.target)})? This action cannot be undone.`
+            : ''
+        }
+        confirmText="Delete Goal"
+        cancelText="Cancel"
+        confirmVariant="danger"
+        loading={isDeleting}
+        onConfirm={handleConfirmDeleteGoal}
+        onClose={() => !isDeleting && setGoalToDelete(null)}
+      />
     </motion.div>
   );
 }

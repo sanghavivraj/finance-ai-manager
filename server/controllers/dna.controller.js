@@ -248,6 +248,7 @@ export const getFinancialDNA = async (req, res, next) => {
 
     res.json({
       hasData: true,
+         hasIncomeData: totalIncome90 > 0 && Number.isFinite(totalIncome90) && loggedIncome90 > 0,
       archetype,
       metrics: {
         savingsRate: safeNum(savingsRate, 0),

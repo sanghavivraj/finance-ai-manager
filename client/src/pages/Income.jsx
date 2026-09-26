@@ -5,11 +5,14 @@ import api from '../services/api.js';
 import { TrendingUp, Plus, Calendar, IndianRupee, Sparkles, Edit2, Trash2 } from 'lucide-react';
 import { formatINR } from '../utils/currency.js';
 import toast from 'react-hot-toast';
+import ConfirmModal from '../components/ConfirmModal.jsx';
 
 export default function Income() {
   const [incomes, setIncomes] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [incomeToDelete, setIncomeToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [form, setForm] = useState({ 
     source: '', 
     amount: '', 
@@ -29,6 +32,22 @@ export default function Income() {
 
   useEffect(() => { 
     loadIncomes(); 
+
+    // 1. Background Polling Interval (every 4 seconds)
+    const interval = setInterval(() => {
+      loadIncomes();
+    }, 4000);
+
+    // 2. Window Focus Re-fetch
+    const handleFocus = () => {
+      loadIncomes();
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
 
   const triggerCelebration = (amount) => {
@@ -70,14 +89,22 @@ export default function Income() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this income?')) return;
+  const handleDeleteClick = (income) => {
+    setIncomeToDelete(income);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!incomeToDelete) return;
+    setIsDeleting(true);
     try {
-      await api.delete(`/incomes/${id}`);
+      await api.delete(`/incomes/${incomeToDelete.id}`);
       toast.success('Income deleted successfully');
+      setIncomeToDelete(null);
       loadIncomes();
     } catch (err) {
       toast.error('Failed to delete income');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -327,7 +354,7 @@ export default function Income() {
                   <Edit2 size={18} />
                 </button>
                 <button 
-                  onClick={() => handleDelete(inc.id)}
+                  onClick={() => handleDeleteClick(inc)}
                   className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all"
                 >
                   <Trash2 size={18} />
@@ -337,6 +364,23 @@ export default function Income() {
           ))
         )}
       </div>
+
+      {/* Custom UI Confirmation Modal for Income Deletion */}
+      <ConfirmModal
+        isOpen={!!incomeToDelete}
+        title="Delete Income Entry"
+        message={
+          incomeToDelete
+            ? `Are you sure you want to delete "${incomeToDelete.source || 'this income'}" of ${formatINR(parseFloat(incomeToDelete.amount || 0))}? This will update your calculated budget balances.`
+            : ''
+        }
+        confirmText="Delete Income"
+        cancelText="Cancel"
+        confirmVariant="danger"
+        loading={isDeleting}
+        onConfirm={handleConfirmDelete}
+        onClose={() => !isDeleting && setIncomeToDelete(null)}
+      />
     </motion.div>
   );
 }

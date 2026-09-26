@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api.js';
-import { Plus, Calendar, IndianRupee, Tag, Store, CreditCard, X } from 'lucide-react';
+import { Plus, Calendar, IndianRupee, Tag, Store, CreditCard, X, Sparkles, Camera } from 'lucide-react';
 import toast from 'react-hot-toast';
+import ReceiptUploader from './ReceiptUploader.jsx';
 
 export default function ExpenseForm({ onAdded, editingExpense, onEditComplete }) {
   const [form, setForm] = useState({
@@ -15,6 +16,7 @@ export default function ExpenseForm({ onAdded, editingExpense, onEditComplete })
   const [mood, setMood] = useState('');
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState([]);
+  const [showScanner, setShowScanner] = useState(false);
 
   // Load categories
   useEffect(() => {
@@ -24,15 +26,20 @@ export default function ExpenseForm({ onAdded, editingExpense, onEditComplete })
   // Fill form when editing
   useEffect(() => {
     if (editingExpense) {
+      const cleanDesc = (editingExpense.description || '')
+        .replace(/^telegram:\s*/i, '')
+        .trim();
+
       setForm({
         amount: editingExpense.amount.toString(),
         category_id: editingExpense.category_id.toString(),
         date: new Date(editingExpense.date).toISOString().split('T')[0],
-        description: editingExpense.description || '',
+        description: cleanDesc,
         merchant: editingExpense.merchant || '',
         payment_method: editingExpense.payment_method || 'upi',
       });
       setMood(editingExpense.mood || '');
+      setShowScanner(false);
     } else {
       // Reset form
       setForm({
@@ -46,6 +53,18 @@ export default function ExpenseForm({ onAdded, editingExpense, onEditComplete })
       setMood('');
     }
   }, [editingExpense]);
+
+  const handleReceiptParsed = (parsed) => {
+    setForm((prev) => ({
+      ...prev,
+      amount: parsed.amount ? parsed.amount.toString() : prev.amount,
+      category_id: parsed.category_id ? parsed.category_id.toString() : prev.category_id,
+      merchant: parsed.merchant || prev.merchant,
+      description: parsed.description || prev.description,
+      date: parsed.date || prev.date,
+    }));
+    setShowScanner(false);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -89,22 +108,44 @@ export default function ExpenseForm({ onAdded, editingExpense, onEditComplete })
   };
 
   return (
-    <form onSubmit={handleSubmit} className="glass-card p-6 space-y-4">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-          {editingExpense ? <Plus size={20} className="text-primary-600" /> : <Plus size={20} className="text-primary-600" />}
-          {editingExpense ? 'Edit Expense' : 'Add Expense'}
-        </h3>
-        {editingExpense && (
-          <button
-            type="button"
-            onClick={onEditComplete}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
-          >
-            <X size={18} />
-          </button>
-        )}
-      </div>
+    <div className="space-y-4">
+      {/* Optional AI Receipt Scanner Header Card */}
+      {!editingExpense && (
+        <div>
+          {!showScanner ? (
+            <button
+              type="button"
+              onClick={() => setShowScanner(true)}
+              className="w-full py-2.5 px-4 rounded-2xl bg-gradient-to-r from-primary-50 via-teal-50 to-emerald-50 border border-primary-200/80 hover:border-primary-400 text-primary-800 text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition duration-200"
+            >
+              <Sparkles size={16} className="text-primary-600" />
+              <span>⚡ Auto-fill with AI Receipt Photo Scan</span>
+            </button>
+          ) : (
+            <ReceiptUploader
+              onParsed={handleReceiptParsed}
+              onCancel={() => setShowScanner(false)}
+            />
+          )}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="glass-card p-6 space-y-4">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <Plus size={20} className="text-primary-600" />
+            {editingExpense ? 'Edit Expense' : 'Expense Details'}
+          </h3>
+          {editingExpense && (
+            <button
+              type="button"
+              onClick={onEditComplete}
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+            >
+              <X size={18} />
+            </button>
+          )}
+        </div>
 
       {/* Amount */}
       <div>
@@ -226,6 +267,7 @@ export default function ExpenseForm({ onAdded, editingExpense, onEditComplete })
       >
         {loading ? 'Saving...' : editingExpense ? '💾 Update Expense' : 'Add Expense'}
       </button>
-    </form>
+      </form>
+    </div>
   );
 }

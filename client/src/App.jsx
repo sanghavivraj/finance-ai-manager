@@ -12,6 +12,7 @@ import Reports from './pages/Reports.jsx';
 import CategorySettings from './pages/CategorySettings.jsx';
 import Goals from './pages/Goals.jsx';
 import FinancialDNA from './pages/FinancialDNA.jsx';
+import PeerCheck from './pages/PeerCheck.jsx';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="/income" element={<Income />} />
         <Route path="/goals" element={<Goals />} />
         <Route path="/financial-dna" element={<FinancialDNA />} />
+        <Route path="/peer-check" element={<PeerCheck />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/categories" element={<CategorySettings />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />

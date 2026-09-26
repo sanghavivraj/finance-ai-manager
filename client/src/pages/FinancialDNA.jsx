@@ -106,6 +106,47 @@ export default function FinancialDNA() {
       </div>
     );
   }
+  if (!dnaData?.hasIncomeData) {
+    return (
+      <div className="p-8 glass-card max-w-lg mx-auto my-12">
+        <div className="flex items-center gap-3 mb-4">
+          <AlertCircle className="w-6 h-6 text-amber-500" />
+          <h3 className="text-xl font-bold text-slate-800">Income Data Required</h3>
+        </div>
+        <p className="text-slate-600 mb-6">
+          We need your monthly income data to calculate your savings rate. Please update your income settings in the profile section.
+        </p>
+        <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-sm">
+          <p className="font-medium mb-2">Why is this needed?</p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Savings rate is calculated as (Income - Expenses) / Income</li>
+            <li>Without income data, we can't calculate your savings rate</li>
+            <li>Other metrics like discretionary spending and weekend spending are still available</li>
+          </ul>
+        </div>
+      </div>
+    );
+  } else if (dnaData?.metrics?.savingsRate === 0) {
+    return (
+      <div className="p-8 glass-card max-w-lg mx-auto my-12">
+        <div className="flex items-center gap-3 mb-4">
+          <AlertCircle className="w-6 h-6 text-amber-500" />
+          <h3 className="text-xl font-bold text-slate-800">Zero Savings Rate</h3>
+        </div>
+        <p className="text-slate-600 mb-6">
+          Your current savings rate is 0%. This means you're spending all your income. Consider setting aside some amount for savings.
+        </p>
+        <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-sm">
+          <p className="font-medium mb-2">What does this mean?</p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Savings rate is calculated as (Income - Expenses) / Income</li>
+            <li>A 0% savings rate means you're not saving any money</li>
+            <li>Other metrics like discretionary spending and weekend spending are still available</li>
+          </ul>
+        </div>
+      </div>
+    );
+  }
 
   const { archetype, metrics, radarScores, recommendations, coolingOffAlert } = dnaData;
   const ArchetypeIcon = iconMap[archetype.icon] || BrainCircuit;

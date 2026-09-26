@@ -16,7 +16,7 @@ export default function Dashboard() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerData, setDrawerData] = useState({ title: '', merchants: [], loading: false });
 
-    const load = async () => {
+  const load = async (silent = false) => {
     try {
       const [summaryRes, healthRes] = await Promise.all([
         api.get('/dashboard/summary'),
@@ -49,16 +49,32 @@ export default function Dashboard() {
         flows,
       });
       
-      setLoading(false);
+      if (!silent) setLoading(false);
     } catch (err) {
       console.error(err);
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
-  
+  useEffect(() => { 
+    load(false); 
 
-  useEffect(() => { load(); }, []);
+    // 1. Background Polling Interval (every 4 seconds)
+    const interval = setInterval(() => {
+      load(true);
+    }, 4000);
+
+    // 2. Window Focus Re-fetch (instant refresh when returning from Telegram/other apps)
+    const handleFocus = () => {
+      load(true);
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
 
   const handleSliceClick = async (category) => {
     if (!category || !category.id) return;
