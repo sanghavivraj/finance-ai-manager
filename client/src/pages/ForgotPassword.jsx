@@ -44,7 +44,7 @@ export default function ForgotPassword() {
     setLoading(true);
 
     try {
-      const { data } = await api.post('/auth/reset-password', { code, newPassword });
+      const { data } = await api.post('/auth/reset-password', { email, code, newPassword });
       setSuccess(true);
       setMessage(data.message || 'Password reset successful!');
       setTimeout(() => {

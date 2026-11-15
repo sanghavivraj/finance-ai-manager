@@ -291,7 +291,7 @@ export default function FinancialDNA() {
         className="glass-card p-6 sm:p-8 rounded-3xl"
       >
         <div className="mb-6">
-          <h3 className="font-bold text-lg text-slate-800">Financial Health Score</h3>
+          <h3 className="font-bold text-lg text-slate-800">Spending Behavior Score</h3>
           <p className="text-xs text-slate-500">Overall score based on your savings, control, and spending habits</p>
         </div>
 

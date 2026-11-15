@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../services/api.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { Link } from 'react-router-dom';
 import { formatINR } from '../utils/currency.js';
 import {
   ShieldCheck,
@@ -66,6 +68,7 @@ const samplePurchases = [
 ];
 
 export default function Budgets() {
+  const { user } = useAuth();
   const [budgets, setBudgets] = useState([]);
   const [monthlyIncome, setMonthlyIncome] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -168,8 +171,12 @@ export default function Budgets() {
     const daysRemaining = Math.max(1, daysInMonth - currentDay + 1);
     const monthProgressPercent = Math.min(100, Math.round((currentDay / daysInMonth) * 100));
 
-    const totalBudget = budgets.reduce((sum, b) => sum + parseFloat(b.amount || 0), 0);
-    const totalSpent = budgets.reduce((sum, b) => sum + parseFloat(b.spent || 0), 0);
+    // Savings & Investments are wealth-building transfers, not "burn". Pacing,
+    // ceiling and runway use living expenses only (same basis as the Dashboard).
+    const isAsset = (b) => ['savings', 'investments'].includes((b.category_name || '').toLowerCase());
+    const totalAllocated = budgets.reduce((sum, b) => sum + parseFloat(b.amount || 0), 0);
+    const totalBudget = budgets.filter((b) => !isAsset(b)).reduce((sum, b) => sum + parseFloat(b.amount || 0), 0);
+    const totalSpent = budgets.filter((b) => !isAsset(b)).reduce((sum, b) => sum + parseFloat(b.spent || 0), 0);
     const remainingBudget = Math.max(0, totalBudget - totalSpent);
     const budgetUsagePercent = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
 
@@ -188,7 +195,7 @@ export default function Budgets() {
       .filter((b) => ['Savings', 'Investments'].includes(b.category_name))
       .reduce((sum, b) => sum + parseFloat(b.amount || 0), 0);
 
-    const discretionaryLimit = Math.max(0, totalBudget - committedBills - committedSavings);
+    const discretionaryLimit = Math.max(0, totalBudget - committedBills); // totalBudget already excludes savings
     const discretionarySpent = budgets
       .filter((b) => !['Bills', 'Savings', 'Investments'].includes(b.category_name))
       .reduce((sum, b) => sum + parseFloat(b.spent || 0), 0);
@@ -244,6 +251,7 @@ export default function Budgets() {
       daysRemaining,
       monthProgressPercent,
       totalBudget,
+      totalAllocated,
       totalSpent,
       remainingBudget,
       budgetUsagePercent,
@@ -266,8 +274,8 @@ export default function Budgets() {
   // Open Recalibrate Modal with current limit
   const openRecalibrateModal = () => {
     setRecalibrateLimit(
-      pacingMetrics.totalBudget > 0
-        ? pacingMetrics.totalBudget.toString()
+      pacingMetrics.totalAllocated > 0
+        ? pacingMetrics.totalAllocated.toString()
         : monthlyIncome > 0
         ? monthlyIncome.toString()
         : '12000'
@@ -605,11 +613,21 @@ export default function Budgets() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
-          {/* Telegram Sync Indicator */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-xs font-semibold shadow-xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Telegram Sync Active</span>
-          </div>
+          {/* Telegram Sync Indicator (reflects real link state) */}
+          {user?.telegram_linked ? (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-xs font-semibold shadow-xs">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Telegram Sync Active</span>
+            </div>
+          ) : (
+            <Link
+              to="/categories"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-100"
+            >
+              <span className="w-2 h-2 rounded-full bg-slate-400" />
+              <span>Link Telegram</span>
+            </Link>
+          )}
 
           <button
             onClick={() => loadBudgets(false)}
@@ -831,13 +849,18 @@ export default function Budgets() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {budgets.map((b, i) => {
+              const catName = (b.category_name || '').trim();
+              const isSavingsOrInvestment = ['savings', 'investments'].includes(catName.toLowerCase());
               const spent = parseFloat(b.spent || 0);
               const limit = parseFloat(b.amount || 0);
               const remaining = limit - spent;
               const usagePercent = limit > 0 ? (spent / limit) * 100 : 0;
               const catSafeDaily = pacingMetrics.daysRemaining > 0 ? Math.max(0, remaining / pacingMetrics.daysRemaining) : 0;
-              const isOver = spent > limit;
-              const isElevated = usagePercent > pacingMetrics.monthProgressPercent + 15;
+              
+              // Non-savings: overspent is bad (rose). Savings: saved more is AWESOME (emerald).
+              const isOver = !isSavingsOrInvestment && spent > limit;
+              const isSavingsMet = isSavingsOrInvestment && spent >= limit;
+              const isElevated = !isSavingsOrInvestment && usagePercent > pacingMetrics.monthProgressPercent + 15;
               const icon = categoryIcons[b.category_name] || b.icon || '📦';
 
               return (
@@ -847,21 +870,36 @@ export default function Budgets() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.03 }}
                   onClick={() => openEditCategory(b)}
-                  className="glass-card p-4 sm:p-5 rounded-2xl border border-slate-200/70 shadow-xs hover:border-primary-400 hover:shadow-md cursor-pointer transition-all flex flex-col justify-between group bg-white relative overflow-hidden"
+                  className={`glass-card p-4 sm:p-5 rounded-2xl border shadow-xs hover:shadow-md cursor-pointer transition-all flex flex-col justify-between group bg-white relative overflow-hidden ${
+                    isSavingsMet 
+                      ? 'border-emerald-300 hover:border-emerald-500 bg-gradient-to-b from-white to-emerald-50/20' 
+                      : isOver 
+                      ? 'border-rose-200/80 hover:border-rose-400' 
+                      : 'border-slate-200/70 hover:border-primary-400'
+                  }`}
                 >
                   <div>
                     {/* Header: Icon + Category + Edit Trigger */}
                     <div className="flex items-center justify-between mb-2.5">
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-base shrink-0 border border-slate-200/60 group-hover:scale-105 transition">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-base shrink-0 border group-hover:scale-105 transition ${
+                          isSavingsOrInvestment ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200/60'
+                        }`}>
                           {icon}
                         </div>
                         <div className="min-w-0">
-                          <h4 className="font-bold text-slate-800 text-sm truncate group-hover:text-primary-600 transition">
-                            {b.category_name}
-                          </h4>
+                          <div className="flex items-center gap-1.5">
+                            <h4 className="font-bold text-slate-800 text-sm truncate group-hover:text-primary-600 transition">
+                              {b.category_name}
+                            </h4>
+                            {isSavingsOrInvestment && (
+                              <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                                Asset
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[10px] text-slate-400 font-medium">
-                            {b.is_ai_generated ? 'AI Guardrail' : 'Custom Ceiling'}
+                            {isSavingsOrInvestment ? 'Wealth Goal Target' : b.is_ai_generated ? 'AI Guardrail' : 'Custom Ceiling'}
                           </div>
                         </div>
                       </div>
@@ -880,14 +918,18 @@ export default function Budgets() {
                         </span>
                       </div>
 
-                      <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
-                        isOver
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md shrink-0 ${
+                        isSavingsMet
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : isOver
                           ? 'bg-rose-50 text-rose-700'
                           : isElevated
                           ? 'bg-amber-50 text-amber-700'
+                          : isSavingsOrInvestment
+                          ? 'bg-teal-50 text-teal-700'
                           : 'bg-emerald-50 text-emerald-700'
                       }`}>
-                        {usagePercent.toFixed(0)}%
+                        {isSavingsMet ? `${usagePercent.toFixed(0)}% Saved! 🎯` : `${usagePercent.toFixed(0)}%`}
                       </span>
                     </div>
 
@@ -898,7 +940,9 @@ export default function Budgets() {
                         animate={{ width: `${Math.min(100, usagePercent)}%` }}
                         transition={{ duration: 0.8 }}
                         className={`h-full rounded-full ${
-                          isOver
+                          isSavingsOrInvestment
+                            ? 'bg-gradient-to-r from-teal-400 to-emerald-500'
+                            : isOver
                             ? 'bg-rose-500'
                             : isElevated
                             ? 'bg-gradient-to-r from-amber-400 to-rose-400'
@@ -910,11 +954,27 @@ export default function Budgets() {
 
                   {/* Footer Row: Buffer & Velocity */}
                   <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
-                    <span className={`font-semibold ${isOver ? 'text-rose-600' : 'text-slate-500'}`}>
-                      {isOver ? `Over by ${formatINR(Math.abs(remaining))}` : `${formatINR(remaining)} left`}
+                    <span className={`font-semibold ${
+                      isSavingsMet 
+                        ? 'text-emerald-700' 
+                        : isOver 
+                        ? 'text-rose-600' 
+                        : 'text-slate-500'
+                    }`}>
+                      {isSavingsOrInvestment
+                        ? spent >= limit
+                          ? `+${formatINR(spent - limit)} Extra Saved! 🌟`
+                          : `${formatINR(remaining)} to target`
+                        : isOver
+                        ? `Over by ${formatINR(Math.abs(remaining))}`
+                        : `${formatINR(remaining)} left`}
                     </span>
                     <span className="text-slate-400 font-medium">
-                      Safe: <strong className="text-slate-700 font-semibold">{formatINR(catSafeDaily)}/d</strong>
+                      {isSavingsOrInvestment ? (
+                        <span className="text-emerald-700 font-semibold">{spent >= limit ? 'Target Exceeded 🚀' : 'Building Wealth'}</span>
+                      ) : (
+                        <>Safe: <strong className="text-slate-700 font-semibold">{formatINR(catSafeDaily)}/d</strong></>
+                      )}
                     </span>
                   </div>
                 </motion.div>

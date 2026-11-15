@@ -214,7 +214,7 @@ export default function Goals() {
                     </div>
                     <div className="flex justify-between text-xs font-semibold text-slate-500">
                       <span>{goal.progress.toFixed(0)}% Saved</span>
-                      <span className="text-emerald-600">{goal.ai_prediction}% AI Likelihood</span>
+                      <span className="text-emerald-600">{goal.ai_prediction != null ? `${goal.ai_prediction}% On-track likelihood` : 'No deadline set'}</span>
                     </div>
                   </div>
 

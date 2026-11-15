@@ -4,7 +4,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "test": "echo 'Test script not implemented'",
+    "lint": "echo 'Lint script not implemented'",
+    "preview": "vite preview"
   },
   "dependencies": {
     "axios": "^1.7.2",

@@ -5,7 +5,7 @@ import { Check, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const categoryIcons = {
-  'Food': '',
+  'Food': '🍔',
   'Shopping': '🛍️',
   'Transport': '🚗',
   'Bills': '📄',
@@ -13,6 +13,30 @@ const categoryIcons = {
   'Savings': '💰',
   'Investments': '📈'
 };
+
+function TelegramLink() {
+  const [code, setCode] = useState(null);
+  const generate = async () => {
+    try {
+      const { data } = await api.post('/auth/telegram-link-code');
+      setCode(data.code);
+    } catch {
+      toast.error('Could not generate code');
+    }
+  };
+  return (
+    <div className="glass-card p-6">
+      <h2 className="text-xl font-bold text-slate-800">Link Telegram</h2>
+      <p className="text-slate-500 text-sm mt-1">
+        Generate a one-time code, then send <code>/link CODE</code> to the bot. Valid for 10 minutes.
+      </p>
+      <button onClick={generate} className="mt-4 px-4 py-2 rounded-lg bg-primary-500 text-white font-medium">
+        Generate code
+      </button>
+      {code && <div className="mt-4 text-2xl font-mono font-bold tracking-widest text-slate-800">{code}</div>}
+    </div>
+  );
+}
 
 export default function CategorySettings() {
   const [categories, setCategories] = useState([]);
@@ -96,6 +120,7 @@ export default function CategorySettings() {
           ))}
         </div>
       )}
+      <TelegramLink />
     </motion.div>
   );
 }
