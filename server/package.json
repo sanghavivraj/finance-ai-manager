@@ -4,7 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon index.js",
-    "start": "node index.js"
+    "start": "node index.js",
+    "build": "echo 'Build script not implemented'",
+    "test": "vitest run",
+    "lint": "echo 'Lint script not implemented'",
+    "validate": "node --check index.js && node --check app.js"
   },
   "dependencies": {
     "@google/genai": "^2.23.0",
@@ -13,13 +17,17 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "express-rate-limit": "^8.7.4",
     "form-data": "^4.0.6",
     "groq-sdk": "^1.6.0",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
     "node-telegram-bot-api": "^1.2.0",
     "pg": "^8.12.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.4"
+    "nodemon": "^3.1.4",
+    "supertest": "^7.3.2",
+    "vitest": "^2.1.9"
   }
 }

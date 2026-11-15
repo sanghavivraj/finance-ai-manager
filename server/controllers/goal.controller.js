@@ -1,4 +1,5 @@
 import { pool } from '../config/db.js';
+import { projectGoal } from '../utils/goalProjection.js';
 
 export const list = async (req, res, next) => {
   try {
@@ -30,24 +31,37 @@ export const list = async (req, res, next) => {
       }
     }
 
+    // Average monthly savings + investments over the last 3 months
+    const { rows: pace } = await pool.query(
+      `SELECT COALESCE(SUM(e.amount), 0) AS total
+       FROM expenses e JOIN categories c ON c.id = e.category_id
+       WHERE e.user_id = $1 AND LOWER(c.name) IN ('savings', 'investments')
+         AND e.date >= (CURRENT_DATE - INTERVAL '3 months')`,
+      [req.user.id]
+    );
+    const avgMonthlySaving = parseFloat(pace[0]?.total || 0) / 3;
+    const unfinished = rows.filter(g => parseFloat(g.current_amount || 0) < parseFloat(g.target_amount || 0)).length || 1;
+
     const formatted = rows.map(g => {
       const target = parseFloat(g.target_amount || 0);
       const current = parseFloat(g.current_amount || 0);
       const progress = target > 0 ? Math.min(100, (current / target) * 100) : 0;
-      
-      // Simple AI progress likelihood calculation
-      let ai_prediction = Math.round(progress > 70 ? 92 : progress > 40 ? 78 : 55);
-      let ai_suggestion = progress >= 100 
-        ? "Goal Achieved! Consider allocating funds to investments."
-        : `Deposit ₹${Math.ceil((target - current) / 3)} per month to hit deadline.`;
+
+      // Savings capacity is shared evenly across unfinished goals
+      const p = projectGoal({
+        target, current, deadline: g.deadline,
+        monthlySaving: avgMonthlySaving / unfinished,
+      });
 
       return {
         ...g,
-        target: target,
-        current: current,
-        progress: progress,
-        ai_prediction,
-        ai_suggestion,
+        target,
+        current,
+        progress,
+        ai_prediction: p.likelihood,
+        ai_suggestion: p.suggestion,
+        required_monthly: p.requiredMonthly,
+        months_left: p.monthsLeft,
       };
     });
 

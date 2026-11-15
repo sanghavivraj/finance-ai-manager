@@ -8,13 +8,17 @@
 
 import { GoogleGenAI } from '@google/genai';
 
-const SUPPORTED_MODELS = [
+const DEFAULT_MODELS = [
   'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite-preview',
   'gemini-3.5-flash',
   'gemini-3.6-flash',
   'gemini-3.8-flash',
 ];
+// Override with GEMINI_MODELS=model1,model2 (comma-separated) without a code change
+const SUPPORTED_MODELS = process.env.GEMINI_MODELS
+  ? process.env.GEMINI_MODELS.split(',').map(m => m.trim()).filter(Boolean)
+  : DEFAULT_MODELS;
 
 let _aiInstance = null;
 

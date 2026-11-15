@@ -16,7 +16,9 @@ function getAI() {
 async function callGemini(contents) {
   const ai = getAI();
   if (!ai) throw new Error('GEMINI_API_KEY is not configured on server.');
-  const models = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash'];
+  const models = process.env.GEMINI_MODELS
+    ? process.env.GEMINI_MODELS.split(',').map(m => m.trim()).filter(Boolean)
+    : ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash'];
   let lastErr = null;
   for (const model of models) {
     try {
@@ -101,7 +103,11 @@ Return ONLY a raw, valid JSON object (no markdown, no codeblock) with these exac
     const date = parsed.date || new Date().toISOString().split('T')[0];
 
     // Find category ID
-    const { rows: categories } = await pool.query(`SELECT id, name FROM categories WHERE is_active = true`);
+    const { rows: categories } = await pool.query(
+      `SELECT c.id, c.name FROM categories c
+       WHERE NOT EXISTS (SELECT 1 FROM user_disabled_categories udc WHERE udc.user_id = $1 AND udc.category_id = c.id)`,
+      [req.user.id]
+    );
     let matchedCat = categories.find(c => c.name.toLowerCase() === categoryName.toLowerCase());
     if (!matchedCat) {
       matchedCat = categories.find(c => c.name.toLowerCase() === 'shopping') || categories[0];
@@ -208,7 +214,7 @@ export const list = async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT e.*, c.name as category_name, c.icon FROM expenses e
        JOIN categories c ON c.id=e.category_id
-       WHERE e.user_id=$1 AND c.is_active = true
+       WHERE e.user_id=$1 AND NOT EXISTS (SELECT 1 FROM user_disabled_categories udc WHERE udc.user_id = $1 AND udc.category_id = c.id)
        ORDER BY e.date DESC LIMIT 200`,
       [req.user.id]
     );

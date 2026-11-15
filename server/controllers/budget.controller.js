@@ -1,10 +1,10 @@
 import { pool } from '../config/db.js';
-import { generateAIBudget, autoRebalance } from '../ai/budgetEngine.js';
+import { calculatePersonalizedBudget, autoRebalance } from '../ai/budgetEngine.js';
 import { getCurrentMonthTotalIncome } from '../utils/incomeCalculator.js';
 import { callGemini, extractJSON, isAIConfigured } from '../ai/geminiClient.js';
 
 
-// ✅ FIXED LIST FUNCTION - Returns monthlyIncome correctly
+// ✅ FIXED LIST FUNCTION - Returns monthlyIncome and stored budgets correctly
 export const list = async (req, res, next) => {
   try {
     const userId = req.user.id;
@@ -12,10 +12,10 @@ export const list = async (req, res, next) => {
 
     // Get budgets
     const { rows: budgetRows } = await pool.query(
-      `SELECT b.*, c.name as category_name, c.icon 
+      `SELECT b.*, c.name as category_name, c.icon, c.type 
        FROM budgets b
        JOIN categories c ON c.id = b.category_id
-       WHERE b.user_id = $1 AND b.month = $2 AND b.year = $3 AND c.is_active = true
+       WHERE b.user_id = $1 AND b.month = $2 AND b.year = $3 AND NOT EXISTS (SELECT 1 FROM user_disabled_categories udc WHERE udc.user_id = $1 AND udc.category_id = c.id)
        ORDER BY c.name`,
       [userId, month, year]
     );
@@ -30,7 +30,7 @@ export const list = async (req, res, next) => {
       [userId, month, year]
     );
 
-    const monthlyIncome = parseFloat(incomeRows[0].total);
+    const monthlyIncome = parseFloat(incomeRows[0]?.total || 0);
 
     // ✅ Calculate spending for EACH budget category
     const budgetsWithSpending = await Promise.all(
@@ -47,7 +47,7 @@ export const list = async (req, res, next) => {
 
         return {
           ...budget,
-          spent: parseFloat(spentRows[0].total)
+          spent: parseFloat(spentRows[0]?.total || 0)
         };
       })
     );
@@ -141,7 +141,10 @@ export const generateWithAI = async (req, res, next) => {
 
     // Get ONLY ACTIVE categories
     const { rows: activeCats } = await pool.query(
-      `SELECT name FROM categories WHERE is_active = true ORDER BY id`
+      `SELECT c.name FROM categories c
+       WHERE NOT EXISTS (SELECT 1 FROM user_disabled_categories udc WHERE udc.user_id = $1 AND udc.category_id = c.id)
+       ORDER BY c.id`,
+      [userId]
     );
 
     const activeCategoryNames = activeCats.map(c => c.name);
@@ -838,7 +841,7 @@ export const frictionCheck = async (req, res, next) => {
     const { rows: budgetRows } = await pool.query(
       `SELECT b.*, c.name as category_name FROM budgets b
        JOIN categories c ON c.id = b.category_id
-       WHERE b.user_id = $1 AND b.month = $2 AND b.year = $3 AND c.is_active = true`,
+       WHERE b.user_id = $1 AND b.month = $2 AND b.year = $3 AND NOT EXISTS (SELECT 1 FROM user_disabled_categories udc WHERE udc.user_id = $1 AND udc.category_id = c.id)`,
       [userId, month, year]
     );
 
@@ -857,12 +860,15 @@ export const frictionCheck = async (req, res, next) => {
     const savingsBudget = budgetRows.filter(b => ['Savings', 'Investments'].includes(b.category_name)).reduce((sum, b) => sum + parseFloat(b.amount || 0), 0);
     const discretionaryBudget = Math.max(0, totalBudget - billsBudget - savingsBudget);
 
-    const totalSpent = spentRows.reduce((sum, e) => sum + parseFloat(e.total || 0), 0);
+    // Living expenses only: savings/investments are transfers, not spending
+    const totalSpent = spentRows
+      .filter(e => !['savings', 'investments'].includes((e.category_name || '').toLowerCase()))
+      .reduce((sum, e) => sum + parseFloat(e.total || 0), 0);
     const discretionarySpent = spentRows
       .filter(e => !['Bills', 'Savings', 'Investments'].includes(e.category_name))
       .reduce((sum, e) => sum + parseFloat(e.total || 0), 0);
       
-    const remainingTotalBudget = Math.max(0, totalBudget - totalSpent);
+    const remainingTotalBudget = Math.max(0, (totalBudget - savingsBudget) - totalSpent);
     const zeroGuiltPool = Math.max(0, discretionaryBudget - discretionarySpent);
     const remainingPoolAfterPurchase = zeroGuiltPool - monthlyInstallment;
     const poolImpactPercent = zeroGuiltPool > 0 ? Math.round((monthlyInstallment / zeroGuiltPool) * 100) : 100;

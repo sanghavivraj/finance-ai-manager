@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   telegram_id VARCHAR(100) UNIQUE,
   reset_token VARCHAR(255),
   reset_token_expires TIMESTAMP,
-  reset_code VARCHAR(10),
+  reset_code VARCHAR(64),
   reset_code_expires TIMESTAMP,
   created_at TIMESTAMP DEFAULT NOW()
 );
@@ -102,3 +102,15 @@ VALUES
   ('Tier 2 (₹50k–₹1L)', 50000, 100000, 16.0, 26.0, 14.0, 8.0, 30.0),
   ('Tier 3 (₹1L+)', 100000, 99999999, 12.0, 20.0, 15.0, 6.0, 40.0)
 ON CONFLICT DO NOTHING;
+
+-- Per-user category toggles (categories are shared; each user hides their own)
+CREATE TABLE IF NOT EXISTS user_disabled_categories (
+  user_id INT REFERENCES users(id) ON DELETE CASCADE,
+  category_id INT REFERENCES categories(id) ON DELETE CASCADE,
+  PRIMARY KEY (user_id, category_id)
+);
+
+-- One-time codes for linking a Telegram chat to an account
+ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_link_code VARCHAR(64);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_link_expires TIMESTAMP;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_attempts INT DEFAULT 0;

@@ -33,11 +33,14 @@ export const register = async (req, res, next) => {
     const hash = await bcrypt.hash(password, 10);
     const { rows } = await pool.query(
       `INSERT INTO users (name, email, password_hash) VALUES ($1,$2,$3) RETURNING id, name, email`,
-      [name, email, hash]
+      [name.trim(), email.trim().toLowerCase(), hash]
     );
     const token = jwt.sign({ id: rows[0].id }, getJwtSecret(), { expiresIn: '30d' });
     res.json({ token, user: rows[0] });
-  } catch (e) { next(e); }
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'An account with this email already exists' });
+    next(e);
+  }
 };
 
 export const login = async (req, res, next) => {
@@ -49,12 +52,11 @@ export const login = async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid email format' });
     }
     
-    // Validate password
-    if (!password || password.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    if (!password || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Password is required' });
     }
     
-    const { rows } = await pool.query(`SELECT * FROM users WHERE email=$1`, [email]);
+    const { rows } = await pool.query(`SELECT * FROM users WHERE LOWER(email)=LOWER($1)`, [email]);
     if (!rows[0]) return res.status(401).json({ error: 'Invalid credentials' });
     const ok = await bcrypt.compare(password, rows[0].password_hash);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
@@ -67,7 +69,7 @@ export const login = async (req, res, next) => {
 export const me = async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, name, email, monthly_income, auto_rebalance FROM users WHERE id=$1`,
+      `SELECT id, name, email, monthly_income, auto_rebalance, (telegram_id IS NOT NULL) AS telegram_linked FROM users WHERE id=$1`,
       [req.user.id]
     );
     res.json(rows[0]);
@@ -93,16 +95,15 @@ export const forgotPassword = async (req, res, next) => {
     }
 
     const user = rows[0];
-    const resetCode = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit numeric OTP
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const resetCode = crypto.randomInt(100000, 1000000).toString(); // CSPRNG 6-digit OTP
+    const hashedCode = crypto.createHash('sha256').update(resetCode).digest('hex');
     const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
 
     await pool.query(
-      `UPDATE users 
-       SET reset_code = $1, reset_code_expires = $2, reset_token = $3, reset_token_expires = $2 
-       WHERE id = $4`,
-      [resetCode, expires, hashedToken, user.id]
+      `UPDATE users
+       SET reset_code = $1, reset_code_expires = $2, reset_attempts = 0
+       WHERE id = $3`,
+      [hashedCode, expires, user.id]
     );
 
     // Send 6-digit OTP code via Telegram Bot if linked
@@ -134,44 +135,68 @@ export const forgotPassword = async (req, res, next) => {
 
 export const resetPassword = async (req, res, next) => {
   try {
-    const { code, token, newPassword } = req.body;
+    const { email, code, token, newPassword } = req.body;
     const userCode = (code || token || '').toString().trim();
-    
-    // Validate code/token
-    if (!userCode || userCode.length !== 6 || !/^\d{6}$/.test(userCode)) {
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+    if (!/^\d{6}$/.test(userCode)) {
       return res.status(400).json({ error: 'Reset code must be a 6-digit number' });
     }
-    
-    // Validate new password
     if (!newPassword || newPassword.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
-    
-    const hashedToken = crypto.createHash('sha256').update(userCode).digest('hex');
 
     const { rows } = await pool.query(
-      `SELECT id FROM users 
-       WHERE (reset_code = $1 OR reset_token = $2 OR reset_token = $3) 
-         AND (reset_code_expires > NOW() OR reset_token_expires > NOW())`,
-      [userCode, hashedToken, userCode]
+      `SELECT id, reset_code, reset_code_expires, COALESCE(reset_attempts, 0) AS attempts
+       FROM users WHERE LOWER(email) = LOWER($1)`,
+      [email]
     );
+    const user = rows[0];
+    const invalid = () => res.status(400).json({ error: 'Invalid or expired reset code' });
 
-    if (rows.length === 0) {
-      return res.status(400).json({ error: 'Invalid or expired 6-digit reset code' });
+    if (!user || !user.reset_code || new Date(user.reset_code_expires) < new Date()) return invalid();
+
+    // Lock the code after 5 wrong guesses (brute-force protection)
+    if (user.attempts >= 5) {
+      await pool.query(`UPDATE users SET reset_code = NULL, reset_code_expires = NULL WHERE id = $1`, [user.id]);
+      return res.status(429).json({ error: 'Too many attempts. Request a new code.' });
     }
 
-    const userId = rows[0].id;
-    const newHash = await bcrypt.hash(newPassword, 10);
+    const hashed = crypto.createHash('sha256').update(userCode).digest('hex');
+    const a = Buffer.from(hashed);
+    const b = Buffer.from(user.reset_code);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      await pool.query(`UPDATE users SET reset_attempts = COALESCE(reset_attempts, 0) + 1 WHERE id = $1`, [user.id]);
+      return invalid();
+    }
 
+    const newHash = await bcrypt.hash(newPassword, 10);
     await pool.query(
-      `UPDATE users 
-       SET password_hash = $1, reset_code = NULL, reset_code_expires = NULL, reset_token = NULL, reset_token_expires = NULL 
+      `UPDATE users
+       SET password_hash = $1, reset_code = NULL, reset_code_expires = NULL,
+           reset_token = NULL, reset_token_expires = NULL, reset_attempts = 0
        WHERE id = $2`,
-      [newHash, userId]
+      [newHash, user.id]
     );
 
     res.json({ message: 'Password reset successful! You can now log in with your new password.' });
   } catch (e) {
     next(e);
   }
+};
+
+// Generate a one-time code the user sends to the Telegram bot: /link <code>
+export const createTelegramLinkCode = async (req, res, next) => {
+  try {
+    const code = crypto.randomBytes(4).toString('hex').toUpperCase(); // 8 hex chars
+    const hashed = crypto.createHash('sha256').update(code).digest('hex');
+    const expires = new Date(Date.now() + 10 * 60 * 1000);
+    await pool.query(
+      `UPDATE users SET telegram_link_code = $1, telegram_link_expires = $2 WHERE id = $3`,
+      [hashed, expires, req.user.id]
+    );
+    res.json({ code, expiresInMinutes: 10 });
+  } catch (e) { next(e); }
 };

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import TelegramBot from 'node-telegram-bot-api';
 import { GoogleGenAI } from '@google/genai';
 import Groq, { toFile } from 'groq-sdk';
@@ -161,25 +162,37 @@ async function getUserIdByChatId(chatId) {
   return rows[0]?.id || null;
 }
 
-async function linkAccount(chatId, emailRaw) {
-  const email = emailRaw.replace(/^\/link\s*/i, '').replace(/^\//, '').trim();
-  console.log(`🔗 Linking Telegram chat ${chatId} to email "${email}"`);
+async function linkAccount(chatId, codeRaw) {
+  const code = codeRaw.replace(/^\/link\s*/i, '').replace(/^\//, '').trim().toUpperCase();
 
   try {
-    const { rows } = await pool.query(`SELECT id, name, email FROM users WHERE LOWER(email) = LOWER($1)`, [email]);
-    if (rows.length === 0) {
-      return bot.sendMessage(chatId, `❌ No account found with email: \`${email}\`.\nPlease register on the web app first!`, { parse_mode: 'Markdown' });
+    if (!/^[0-9A-F]{8}$/.test(code)) {
+      return bot.sendMessage(
+        chatId,
+        '❌ Invalid code. Open the web app → Link Telegram, generate a code, then send `/link CODE`.',
+        { parse_mode: 'Markdown' }
+      );
     }
-    
-    // Unlink old account if previously linked
+    const hashed = crypto.createHash('sha256').update(code).digest('hex');
+    const { rows } = await pool.query(
+      `SELECT id, name, email FROM users
+       WHERE telegram_link_code = $1 AND telegram_link_expires > NOW()`,
+      [hashed]
+    );
+    if (rows.length === 0) {
+      return bot.sendMessage(chatId, '❌ Code is invalid or expired. Generate a new one in the web app.');
+    }
+
+    // Unlink old account if previously linked, then link and burn the one-time code
     await pool.query(`UPDATE users SET telegram_id = NULL WHERE telegram_id::text = $1::text`, [chatId.toString()]);
-    
-    // Link new account
-    await pool.query(`UPDATE users SET telegram_id = $1 WHERE id = $2`, [chatId.toString(), rows[0].id]);
-    bot.sendMessage(chatId, `✅ *Successfully linked to account!*\n• Name: ${rows[0].name}\n• Email: ${rows[0].email}\n\nAll text, voice notes, and receipt photos will now log directly to your web dashboard!`, { parse_mode: 'Markdown' });
+    await pool.query(
+      `UPDATE users SET telegram_id = $1, telegram_link_code = NULL, telegram_link_expires = NULL WHERE id = $2`,
+      [chatId.toString(), rows[0].id]
+    );
+    bot.sendMessage(chatId, `✅ *Successfully linked to account!*\n• Name: ${rows[0].name}\n\nAll text, voice notes, and receipt photos will now log directly to your web dashboard!`, { parse_mode: 'Markdown' });
   } catch (error) {
     console.error('❌ Link error:', error);
-    bot.sendMessage(chatId, `❌ Link error: ${error.message}`);
+    bot.sendMessage(chatId, '❌ Could not link account. Please try again.');
   }
 }
 
@@ -193,7 +206,7 @@ bot.onText(/\/balance/, async (msg) => {
   const chatId = msg.chat.id;
   try {
     const userId = await getUserIdByChatId(chatId);
-    if (!userId) return bot.sendMessage(chatId, "❌ Account not linked. Use `/link email@domain.com`", { parse_mode: 'Markdown' });
+    if (!userId) return bot.sendMessage(chatId, "❌ Account not linked. Use `/link CODE` (get CODE in the web app)", { parse_mode: 'Markdown' });
 
     const { rows: u } = await pool.query(`SELECT monthly_income FROM users WHERE id = $1`, [userId]);
     const income = parseFloat(u[0]?.monthly_income || 0);
@@ -218,7 +231,7 @@ bot.onText(/\/status/, async (msg) => {
     [chatId.toString()]
   );
   if (rows.length === 0) {
-    return bot.sendMessage(chatId, "❌ You are not linked to any account. Use `/link email@domain.com`", { parse_mode: 'Markdown' });
+    return bot.sendMessage(chatId, "❌ You are not linked to any account. Use `/link CODE` (get CODE in the web app)", { parse_mode: 'Markdown' });
   }
   bot.sendMessage(chatId, `✅ Linked Account:\n*Name*: ${rows[0].name}\n*Email*: ${rows[0].email}`, { parse_mode: 'Markdown' });
 });
@@ -319,7 +332,9 @@ bot.on('callback_query', async (query) => {
 
 // Helper function for Gemini calls with automatic model fallbacks
 async function callGemini(contents) {
-  const models = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash'];
+  const models = process.env.GEMINI_MODELS
+    ? process.env.GEMINI_MODELS.split(',').map(m => m.trim()).filter(Boolean)
+    : ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash'];
   let lastErr = null;
   for (const model of models) {
     try {
@@ -343,7 +358,7 @@ bot.on('photo', async (msg) => {
   try {
     const userId = await getUserIdByChatId(chatId);
     if (!userId) {
-      return bot.sendMessage(chatId, "👋 Please link your account first:\n`/link email@domain.com`", { parse_mode: 'Markdown' });
+      return bot.sendMessage(chatId, "👋 Please link your account first:\n`/link CODE` (get CODE in the web app)", { parse_mode: 'Markdown' });
     }
 
     if (!process.env.GEMINI_API_KEY) {
@@ -460,7 +475,7 @@ bot.on('voice', async (msg) => {
   try {
     const userId = await getUserIdByChatId(chatId);
     if (!userId) {
-      return bot.sendMessage(chatId, "👋 Please link your account first:\n`/link email@domain.com`", { parse_mode: 'Markdown' });
+      return bot.sendMessage(chatId, "👋 Please link your account first:\n`/link CODE` (get CODE in the web app)", { parse_mode: 'Markdown' });
     }
 
     if (!process.env.GROQ_API_KEY) {
@@ -587,7 +602,7 @@ bot.on('message', async (msg) => {
 
   const userId = await getUserIdByChatId(chatId);
   if (!userId) {
-    return bot.sendMessage(chatId, "👋 Please link your account first:\n`/link email@domain.com`", { parse_mode: 'Markdown' });
+    return bot.sendMessage(chatId, "👋 Please link your account first:\n`/link CODE` (get CODE in the web app)", { parse_mode: 'Markdown' });
   }
 
   let amount, keyword, merchant;

@@ -47,7 +47,7 @@ export const summary = async (req, res, next) => {
     const { rows: budgetRows } = await pool.query(
       `SELECT b.*, c.name as category_name FROM budgets b
        JOIN categories c ON c.id = b.category_id
-       WHERE b.user_id=$1 AND b.month=$2 AND b.year=$3 AND c.is_active = true`,
+       WHERE b.user_id=$1 AND b.month=$2 AND b.year=$3 AND NOT EXISTS (SELECT 1 FROM user_disabled_categories udc WHERE udc.user_id = $1 AND udc.category_id = c.id)`,
       [userId, currentMonth, currentYear]
     );
     
@@ -63,7 +63,7 @@ export const summary = async (req, res, next) => {
          AND e.user_id = $1 
          AND EXTRACT(MONTH FROM e.date) = $2 
          AND EXTRACT(YEAR FROM e.date) = $3
-       WHERE c.is_active = true
+       WHERE NOT EXISTS (SELECT 1 FROM user_disabled_categories udc WHERE udc.user_id = $1 AND udc.category_id = c.id)
        GROUP BY c.id, c.name
        ORDER BY spent DESC`,
       [userId, currentMonth, currentYear]
@@ -175,7 +175,7 @@ export const report = async (req, res, next) => {
          AND b.user_id = $1 
          AND b.month = $2 
          AND b.year = $3
-       WHERE c.is_active = true
+       WHERE NOT EXISTS (SELECT 1 FROM user_disabled_categories udc WHERE udc.user_id = $1 AND udc.category_id = c.id)
        GROUP BY c.name, c.icon, b.amount
        ORDER BY total DESC`,
       [userId, month, year]

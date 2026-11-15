@@ -30,6 +30,19 @@ pool.query(`
   ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_code_expires TIMESTAMP;
   CREATE INDEX IF NOT EXISTS idx_expenses_user_date ON expenses(user_id, date);
 
+  -- Hashed reset codes are 64 hex chars; widen from VARCHAR(10)
+  ALTER TABLE users ALTER COLUMN reset_code TYPE VARCHAR(64);
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_attempts INT DEFAULT 0;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_link_code VARCHAR(64);
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_link_expires TIMESTAMP;
+
+  -- Per-user category toggles (categories themselves are shared/global)
+  CREATE TABLE IF NOT EXISTS user_disabled_categories (
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    category_id INT REFERENCES categories(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, category_id)
+  );
+
   -- categories: is_active (required by dashboard, budgets, expense queries)
   ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
 
